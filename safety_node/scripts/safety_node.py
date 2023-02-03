@@ -8,8 +8,8 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 
-FREQUENCY = 1000
-TTC_THRESHOLD = 0.4
+FREQUENCY = 100
+TTC_THRESHOLD = 0.15
 
 
 class SafetyNode(Node):
@@ -53,7 +53,7 @@ class SafetyNode(Node):
             self.speedX = 0.0
             return
 
-        self.speedX = odomMsg.twist.twist.linear.x
+        self.speedX = -odomMsg.twist.twist.linear.x
 
     def scan_callback(self, scanMsg):
         if scanMsg is None:
@@ -69,7 +69,7 @@ class SafetyNode(Node):
             if projectedSpeedX == 0:
                 continue
 
-            curTTC = distance / max(0, -projectedSpeedX)
+            curTTC = distance / max(0., -projectedSpeedX)
 
             if curTTC < minTTC:
                 minTTC = curTTC
@@ -79,9 +79,10 @@ class SafetyNode(Node):
 
     def brake(self):
         print("Braking")
-        ackermannMsg = AckermannDriveStamped()
-        ackermannMsg.drive.speed = 0.0
-        self.pubDrive.publish(ackermannMsg)
+        while True:
+            ackermannMsg = AckermannDriveStamped()
+            ackermannMsg.drive.speed = 0.0
+            self.pubDrive.publish(ackermannMsg)
 
 
 def main(args=None):
