@@ -8,7 +8,7 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 
-FREQUENCY = 100
+QUEUE_SIZE = 10
 TTC_THRESHOLD = 0.15
 
 
@@ -30,19 +30,19 @@ class SafetyNode(Node):
         NOTE that the x component of the linear velocity in odom is the speed
         """
         self.pubDrive = self.create_publisher(
-            AckermannDriveStamped, '/drive', FREQUENCY)
+            AckermannDriveStamped, '/drive', QUEUE_SIZE)
 
         self.subScan = self.create_subscription(
             LaserScan,
             '/scan',
             self.scan_callback,
-            FREQUENCY)
+            QUEUE_SIZE)
 
         self.subOdom = self.create_subscription(
             Odometry,
             '/ego_racecar/odom',
             self.odom_callback,
-            FREQUENCY)
+            QUEUE_SIZE)
 
         self.speedX = 0.0
 
