@@ -8,7 +8,7 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 
-QUEUE_SIZE = 10
+QUEUE_SIZE = 1
 TTC_THRESHOLD = 0.15
 
 
