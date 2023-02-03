@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
-import rclpy
-from rclpy.node import Node
 
-import numpy as np
-# TODO: include needed ROS msg type headers and libraries
-from sensor_msgs.msg import LaserScan
+import math
+
+import rclpy
+from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry
-from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
+from rclpy.node import Node
+from sensor_msgs.msg import LaserScan
+
+FREQUENCY = 1000
+TTC_THRESHOLD = 0.4
 
 
 class SafetyNode(Node):
     """
     The class that handles emergency braking.
     """
+
     def __init__(self):
         super().__init__('safety_node')
         """
@@ -25,27 +29,66 @@ class SafetyNode(Node):
 
         NOTE that the x component of the linear velocity in odom is the speed
         """
-        self.speed = 0.
-        # TODO: create ROS subscribers and publishers.
+        self.pubDrive = self.create_publisher(
+            AckermannDriveStamped, '/drive', FREQUENCY)
 
-    def odom_callback(self, odom_msg):
-        # TODO: update current speed
-        self.speed = 0.
+        self.subScan = self.create_subscription(
+            LaserScan,
+            '/scan',
+            self.scan_callback,
+            FREQUENCY)
 
-    def scan_callback(self, scan_msg):
-        # TODO: calculate TTC
-        
-        # TODO: publish command to brake
-        pass
+        self.subOdom = self.create_subscription(
+            Odometry,
+            '/ego_racecar/odom',
+            self.odom_callback,
+            FREQUENCY)
+
+        self.speedX = 0.0
+
+        print("Safety node started")
+
+    def odom_callback(self, odomMsg):
+        if odomMsg is None:
+            self.speedX = 0.0
+            return
+
+        self.speedX = odomMsg.twist.twist.linear.x
+
+    def scan_callback(self, scanMsg):
+        if scanMsg is None:
+            return
+
+        minTTC = math.inf
+        for i, distance in enumerate(scanMsg.ranges):
+            if math.isnan(distance) or math.isinf(distance):
+                continue
+
+            angle = scanMsg.angle_min + i * scanMsg.angle_increment
+            projectedSpeedX = math.cos(angle) * self.speedX
+            if projectedSpeedX == 0:
+                continue
+
+            curTTC = distance / max(0, -projectedSpeedX)
+
+            if curTTC < minTTC:
+                minTTC = curTTC
+
+        if minTTC < TTC_THRESHOLD:
+            self.brake()
+
+    def brake(self):
+        print("Braking")
+        ackermannMsg = AckermannDriveStamped()
+        ackermannMsg.drive.speed = 0.0
+        self.pubDrive.publish(ackermannMsg)
+
 
 def main(args=None):
     rclpy.init(args=args)
     safety_node = SafetyNode()
     rclpy.spin(safety_node)
 
-    # Destroy the node explicitly
-    # (optional - otherwise it will be done automatically
-    # when the garbage collector destroys the node object)
     safety_node.destroy_node()
     rclpy.shutdown()
 
