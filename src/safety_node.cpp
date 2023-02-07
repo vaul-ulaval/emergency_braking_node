@@ -1,5 +1,4 @@
-#include <memory>
-#include <algorithm>
+#include <limits>
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
@@ -27,8 +26,8 @@ public:
 
 private:
     double speed = 0.0;
-    const float MAGIC_NUMBER = 3.1;
-    const float DECCELERATION = 8.26;
+    const double MAGIC_NUMBER = 3.1;
+    const double DECCELERATION = 8.26;
 
     Publisher<AckermannDriveStamped>::SharedPtr pubBrake;
     Subscription<Odometry>::SharedPtr subOdometry;
@@ -41,11 +40,14 @@ private:
 
     void scan_callback(const LaserScan::ConstSharedPtr scanMsg)
     {
-        float currentAngle = scanMsg->angle_min - scanMsg->angle_increment;
-        float timeNeededToBrake = std::max(MAGIC_NUMBER * abs(speed) / DECCELERATION, 0.4);
-        RCLCPP_INFO(this->get_logger(), "BREAK" + std::to_string(timeNeededToBrake));
+        if (speed == 0)
+            return;
 
-        float minTtc = 99999;
+        double currentAngle = scanMsg->angle_min - scanMsg->angle_increment;
+        double timeNeededToBrake = std::max(MAGIC_NUMBER * abs(speed) / DECCELERATION, 0.4);
+        RCLCPP_INFO(this->get_logger(), "timeNeededToBrake : " + std::to_string(timeNeededToBrake));
+
+        double minTtc = std::numeric_limits<double>::infinity();
         for (const float distance : scanMsg->ranges)
         {
             currentAngle += scanMsg->angle_increment;
@@ -53,26 +55,29 @@ private:
             if (std::isnan(distance) || std::isinf(distance))
                 continue;
 
-            float projectedSpeed = speed * cos(currentAngle);
+            double projectedSpeed = speed * cos(currentAngle);
             if (projectedSpeed <= 0)
                 continue;
 
-            float ttc = distance / projectedSpeed;
+            double ttc = distance / projectedSpeed;
+
+            // This is only for debugging purposes
             if (ttc < minTtc)
                 minTtc = ttc;
+
             if (ttc < timeNeededToBrake)
             {
+                RCLCPP_INFO(this->get_logger(), "BRAKING");
                 brake();
                 break;
             }
         }
 
-        RCLCPP_INFO(this->get_logger(), "MIN_TTC" + std::to_string(minTtc));
+        RCLCPP_INFO(this->get_logger(), "minTtc : " + std::to_string(minTtc));
     }
 
     void brake()
     {
-        RCLCPP_INFO(this->get_logger(), "BRAKING");
         AckermannDriveStamped brakeMsg;
         brakeMsg.drive.speed = 0;
 
