@@ -18,48 +18,49 @@ public:
     Safety() : Node("safety_node")
     {
         pubBrake = this->create_publisher<AckermannDriveStamped>("/drive", 1);
-        subOdometry = this->create_subscription<Odometry>("/ego_racecar/odom", 1, std::bind(&Safety::drive_callback, this, _1));
         subLaserScan = this->create_subscription<LaserScan>("/scan", 1, std::bind(&Safety::scan_callback, this, _1));
 
-        speed = 0.0;
+        lastScanMsg = nullptr;
     }
 
 private:
-    double speed = 0.0;
-    const double MAGIC_NUMBER = 3.1;
-    const double DECCELERATION = 8.26;
+    LaserScan::ConstSharedPtr lastScanMsg;
+    // const double MAGIC_NUMBER = 3.1;
+    // const double DECCELERATION = 8.26;
 
     Publisher<AckermannDriveStamped>::SharedPtr pubBrake;
-    Subscription<Odometry>::SharedPtr subOdometry;
     Subscription<LaserScan>::SharedPtr subLaserScan;
-
-    void drive_callback(const Odometry::ConstSharedPtr msg)
-    {
-        speed = msg->twist.twist.linear.x;
-    }
 
     void scan_callback(const LaserScan::ConstSharedPtr scanMsg)
     {
-        if (speed == 0)
-            return;
-
-        double currentAngle = scanMsg->angle_min - scanMsg->angle_increment;
-        double timeNeededToBrake = std::max(MAGIC_NUMBER * abs(speed) / DECCELERATION, 0.4);
-        RCLCPP_INFO(this->get_logger(), "timeNeededToBrake : " + std::to_string(timeNeededToBrake));
-
-        double minTtc = std::numeric_limits<double>::infinity();
-        for (const float distance : scanMsg->ranges)
+        if (lastScanMsg == nullptr || scanMsg->ranges.size() != lastScanMsg->ranges.size())
         {
-            currentAngle += scanMsg->angle_increment;
+            lastScanMsg = scanMsg;
+            return;
+        }
 
-            if (std::isnan(distance) || std::isinf(distance))
+        float timeNeededToBrake = 0.1; // std::max(MAGIC_NUMBER * abs(speed) / DECCELERATION, 0.4);
+        double scanTimeDiffSec = (double)(scanMsg->header.stamp.nanosec - lastScanMsg->header.stamp.nanosec) / 1000000000.0;
+        RCLCPP_INFO(this->get_logger(), "scanTimeDiffSec : " + std::to_string(scanTimeDiffSec));
+
+        float minTtc = std::numeric_limits<float>::infinity();
+        for (size_t i = 0; i < scanMsg->ranges.size(); i++)
+        {
+            float distanceNow = scanMsg->ranges[i];
+            float distanceBefore = lastScanMsg->ranges[i];
+
+            if (std::isnan(distanceNow) || std::isinf(distanceNow) ||
+                std::isnan(distanceBefore) || std::isinf(distanceBefore))
                 continue;
 
-            double projectedSpeed = speed * cos(currentAngle);
-            if (projectedSpeed <= 0)
+            float deltaDistance = distanceNow - distanceBefore;
+            if (deltaDistance >= 0) // If positive, wall is further away, no need to consider it
                 continue;
 
-            double ttc = distance / projectedSpeed;
+            float instantSpeed = -deltaDistance / scanTimeDiffSec;
+            float ttc = distanceNow / instantSpeed;
+            // RCLCPP_INFO(this->get_logger(), "instantSpeed : " + std::to_string(instantSpeed));
+            // RCLCPP_INFO(this->get_logger(), "deltaDistance : " + std::to_string(deltaDistance));
 
             // This is only for debugging purposes
             if (ttc < minTtc)
@@ -67,13 +68,14 @@ private:
 
             if (ttc < timeNeededToBrake)
             {
-                RCLCPP_INFO(this->get_logger(), "BRAKING");
+                RCLCPP_INFO(this->get_logger(), "BRAKING at ttc " + std::to_string(ttc));
                 brake();
                 break;
             }
         }
 
         RCLCPP_INFO(this->get_logger(), "minTtc : " + std::to_string(minTtc));
+        lastScanMsg = scanMsg;
     }
 
     void brake()
