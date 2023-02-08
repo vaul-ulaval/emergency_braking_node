@@ -40,40 +40,38 @@ private:
 
     void scan_callback(const LaserScan::ConstSharedPtr scanMsg)
     {
-        if (speed == 0)
-            return;
-
-        double currentAngle = scanMsg->angle_min - scanMsg->angle_increment;
-        double timeNeededToBrake = std::max(MAGIC_NUMBER * abs(speed) / DECCELERATION, 0.4);
-        RCLCPP_INFO(this->get_logger(), "timeNeededToBrake : " + std::to_string(timeNeededToBrake));
+        double currentAngleRad = scanMsg->angle_min - scanMsg->angle_increment;
+        double secondsNeededToBrake = std::max(MAGIC_NUMBER * abs(speed) / DECCELERATION, 0.4);
+        // RCLCPP_INFO(this->get_logger(), "secondsNeededToBrake : " + std::to_string(secondsNeededToBrake));
 
         double minTtc = std::numeric_limits<double>::infinity();
         for (const float distance : scanMsg->ranges)
         {
-            currentAngle += scanMsg->angle_increment;
+            currentAngleRad += scanMsg->angle_increment;
 
             if (std::isnan(distance) || std::isinf(distance))
                 continue;
 
-            double projectedSpeed = speed * cos(currentAngle);
+            double projectedSpeed = speed * cos(currentAngleRad);
             if (projectedSpeed <= 0)
                 continue;
 
-            double ttc = distance / projectedSpeed;
+            double secondsBeforeCollision = distance / projectedSpeed;
 
             // This is only for debugging purposes
-            if (ttc < minTtc)
-                minTtc = ttc;
+            if (secondsBeforeCollision < minTtc)
+                minTtc = secondsBeforeCollision;
 
-            if (ttc < timeNeededToBrake)
+            if (secondsBeforeCollision < secondsNeededToBrake)
             {
-                RCLCPP_INFO(this->get_logger(), "BRAKING");
+                float currentAngleDegree = currentAngleRad * 180.0 / M_PI;
+                RCLCPP_INFO(this->get_logger(), "BRAKING at angle " + std::to_string(currentAngleDegree));
                 brake();
                 break;
             }
         }
 
-        RCLCPP_INFO(this->get_logger(), "minTtc : " + std::to_string(minTtc));
+        // RCLCPP_INFO(this->get_logger(), "minTtc : " + std::to_string(minTtc));
     }
 
     void brake()
