@@ -26,8 +26,11 @@ public:
 
 private:
     double speed = 0.0;
-    const double MAGIC_NUMBER = 3.1;
+    int startRangeIndex = 0;
+    int endRangeIndex = 0;
+    const double MAGIC_NUMBER = 2.5;
     const double DECCELERATION = 8.26;
+    const int FOV_DEGREE = 46; // MUST BE A MULTIPLE OF 2
 
     Publisher<AckermannDriveStamped>::SharedPtr pubBrake;
     Subscription<Odometry>::SharedPtr subOdometry;
@@ -40,17 +43,20 @@ private:
 
     void scan_callback(const LaserScan::ConstSharedPtr scanMsg)
     {
-        double currentAngleRad = scanMsg->angle_min - scanMsg->angle_increment;
-        double secondsNeededToBrake = std::max(MAGIC_NUMBER * abs(speed) / DECCELERATION, 0.4);
-        // RCLCPP_INFO(this->get_logger(), "secondsNeededToBrake : " + std::to_string(secondsNeededToBrake));
+        if (startRangeIndex == 0 && endRangeIndex == 0)
+            computeRangeIndexes(scanMsg);
+
+        double secondsNeededToBrake = 0.6; // std::max(MAGIC_NUMBER * abs(speed) / DECCELERATION, 0.4);
+        RCLCPP_INFO(this->get_logger(), "secondsNeededToBrake : " + std::to_string(secondsNeededToBrake));
 
         double minTtc = std::numeric_limits<double>::infinity();
-        for (const float distance : scanMsg->ranges)
+        for (int i = startRangeIndex; i <= endRangeIndex; i++)
         {
-            currentAngleRad += scanMsg->angle_increment;
-
+            float distance = scanMsg->ranges[i];
             if (std::isnan(distance) || std::isinf(distance))
                 continue;
+
+            double currentAngleRad = scanMsg->angle_min + i * scanMsg->angle_increment;
 
             double projectedSpeed = speed * cos(currentAngleRad);
             if (projectedSpeed <= 0)
@@ -80,6 +86,27 @@ private:
         brakeMsg.drive.speed = 0;
 
         pubBrake->publish(brakeMsg);
+    }
+
+    void computeRangeIndexes(const LaserScan::ConstSharedPtr scanMsg)
+    {
+        float radMinAngle = (-FOV_DEGREE / 2) * (M_PI / 180.0);
+        if (radMinAngle < scanMsg->angle_min)
+            throw std::runtime_error("Node has an invalid FOV_DEGREE value");
+
+        int index = 0;
+        while (radMinAngle > scanMsg->angle_min)
+        {
+            radMinAngle -= scanMsg->angle_increment;
+            index++;
+        }
+
+        startRangeIndex = index;
+        endRangeIndex = scanMsg->ranges.size() - 1 - index;
+        RCLCPP_INFO(this->get_logger(), "start : " + std::to_string(startRangeIndex));
+        RCLCPP_INFO(this->get_logger(), "end : " + std::to_string(endRangeIndex));
+        RCLCPP_INFO(this->get_logger(), "range : " + std::to_string(scanMsg->ranges.size()));
+        RCLCPP_INFO(this->get_logger(), "increment : " + std::to_string(scanMsg->angle_increment));
     }
 };
 
