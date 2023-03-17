@@ -13,7 +13,7 @@ public:
     SafetyNode() : Node("safety_node") {
         drive_command_publisher_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/drive", 10);
         laser_scan_subscription_ = this->create_subscription<sensor_msgs::msg::LaserScan>("/scan", 10, std::bind(&SafetyNode::scan_callback, this, std::placeholders::_1));
-        odom_car_subscription_ = this->create_subscription<nav_msgs::msg::Odometry>("/ego_racecar/odom", 10, std::bind(&SafetyNode::odom_callback, this, std::placeholders::_1));
+        odom_car_subscription_ = this->create_subscription<nav_msgs::msg::Odometry>("/odom", 10, std::bind(&SafetyNode::odom_callback, this, std::placeholders::_1));
         speed_ = 0.0;
         RCLCPP_INFO(this->get_logger(), "Emergency braking node started!");
     }

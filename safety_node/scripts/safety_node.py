@@ -22,7 +22,7 @@ class SafetyNode(Node):
         # TODO: create ROS subscribers and publishers.
         self.drivecommand = self.create_publisher(AckermannDriveStamped, '/drive', 10)
         self.laserscan = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
-        self.odomcar = self.create_subscription(Odometry, '/ego_racecar/odom', self.odom_callback, 10)
+        self.odomcar = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
         self.speed = 0.
         print("Emergency braking node started!")
 
