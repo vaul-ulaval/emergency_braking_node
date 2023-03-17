@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 
 import numpy as np
-# TODO: include needed ROS msg type headers and libraries
+import math
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
@@ -16,27 +16,35 @@ class SafetyNode(Node):
     def __init__(self):
         super().__init__('safety_node')
         """
-        One publisher should publish to the /drive topic with a AckermannDriveStamped drive message.
-
-        You should also subscribe to the /scan topic to get the LaserScan messages and
-        the /ego_racecar/odom topic to get the current speed of the vehicle.
-
-        The subscribers should use the provided odom_callback and scan_callback as callback methods
-
         NOTE that the x component of the linear velocity in odom is the speed
         """
-        self.speed = 0.
+
         # TODO: create ROS subscribers and publishers.
+        self.drivecommand = self.create_publisher(AckermannDriveStamped, '/drive', 10)
+        self.laserscan = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
+        self.odomcar = self.create_subscription(Odometry, '/ego_racecar/odom', self.odom_callback, 10)
+        self.speed = 0.
+        print("Emergency braking node started!")
+
+        
 
     def odom_callback(self, odom_msg):
-        # TODO: update current speed
-        self.speed = 0.
+        self.speed = odom_msg.twist.twist.linear.x
 
     def scan_callback(self, scan_msg):
-        # TODO: calculate TTC
-        
-        # TODO: publish command to brake
-        pass
+        donnees = int((scan_msg.angle_max - scan_msg.angle_min)/scan_msg.angle_increment)
+        for i in range(0, donnees):
+            ran = scan_msg.ranges[i]
+            ran_speed = self.speed*math.cos((i*scan_msg.angle_increment)+scan_msg.angle_min)
+            if ran_speed == 0:
+                continue
+            else:
+                TTC = ran/(ran_speed)
+                if 0 < TTC < 1:  #Changer le TTC selon calibration necessaire et faire des tests
+                    print("Braking", TTC)
+                    ackermannMsg = AckermannDriveStamped()
+                    ackermannMsg.drive.speed = 0.0
+                    self.drivecommand.publish(ackermannMsg)
 
 def main(args=None):
     rclpy.init(args=args)
