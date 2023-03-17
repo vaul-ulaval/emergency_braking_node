@@ -18,23 +18,28 @@ public:
     Safety() : Node("safety_node")
     {
         // All default values are set to work in the simulator
-        this->declare_parameter("brakeTopicName", "/drive");
-        this->declare_parameter("odomTopicName", "/ego_racecar/odom");
+        this->declare_parameter("brakeTopicName", "/brake");
+        this->declare_parameter("odomTopicName", "/odom");
         this->declare_parameter("laserScanTopicName", "/scan");
-        this->declare_parameter("fovDegree", 46); // FOV Must be a multiple of 2
+        this->declare_parameter("ackermannCmdTopicName", "/ackermann_cmd");
+        this->declare_parameter("fovDegree", 22); // FOV Must be a multiple of 2
+        this->declare_parameter("baseTtcThresold", 0.6);
         this->declare_parameter("speedTtcThresoldScale", 2.5);
         this->declare_parameter("carDecceleration", 8.26);
 
         std::string brakeTopicName = this->get_parameter("brakeTopicName").get_parameter_value().get<std::string>();
         std::string odomTopicName = this->get_parameter("odomTopicName").get_parameter_value().get<std::string>();
         std::string laserScanTopicName = this->get_parameter("laserScanTopicName").get_parameter_value().get<std::string>();
+        std::string ackermannCmdTopicName = this->get_parameter("ackermannCmdTopicName").get_parameter_value().get<std::string>();
         fovDegree = this->get_parameter("fovDegree").get_parameter_value().get<int>();
+        baseTtcThresold = this->get_parameter("baseTtcThresold").get_parameter_value().get<float>();
         speedTtcThresoldScale = this->get_parameter("speedTtcThresoldScale").get_parameter_value().get<float>();
         carDecceleration = this->get_parameter("carDecceleration").get_parameter_value().get<float>();
 
         pubBrake = this->create_publisher<AckermannDriveStamped>(brakeTopicName, 1);
         subOdometry = this->create_subscription<Odometry>(odomTopicName, 1, std::bind(&Safety::drive_callback, this, _1));
         subLaserScan = this->create_subscription<LaserScan>(laserScanTopicName, 1, std::bind(&Safety::scan_callback, this, _1));
+        subLastAckermannCmd = this->create_subscription<AckermannDriveStamped>(ackermannCmdTopicName, 1, std::bind(&Safety::ackermann_callback, this, _1));
 
         speed = 0.0;
     }
@@ -43,9 +48,11 @@ private:
     double speed = 0.0;
     int startRangeIndex = 0;
     int endRangeIndex = 0;
+    AckermannDriveStamped::ConstSharedPtr lastAckermannCmd;
 
     // Params
     int fovDegree;
+    float baseTtcThresold;
     float speedTtcThresoldScale;
     float carDecceleration;
 
@@ -53,6 +60,7 @@ private:
     Publisher<AckermannDriveStamped>::SharedPtr pubBrake;
     Subscription<Odometry>::SharedPtr subOdometry;
     Subscription<LaserScan>::SharedPtr subLaserScan;
+    Subscription<AckermannDriveStamped>::SharedPtr subLastAckermannCmd;
 
     void drive_callback(const Odometry::ConstSharedPtr msg)
     {
@@ -64,7 +72,8 @@ private:
         if (startRangeIndex == 0 && endRangeIndex == 0)
             computeRangeIndexes(scanMsg);
 
-        double secondsNeededToBrake = 0.6; // std::max(speedTtcThresoldScale * abs(speed) / carDecceleration, 0.4);
+        // TODO : This should be proportional to the speed
+        double secondsNeededToBrake = baseTtcThresold; // std::max(speedTtcThresoldScale * abs(speed) / carDecceleration, 0.4);
         // RCLCPP_INFO(this->get_logger(), "secondsNeededToBrake : " + std::to_string(secondsNeededToBrake));
 
         double minTtc = std::numeric_limits<double>::infinity();
@@ -95,17 +104,28 @@ private:
             }
         }
 
-        RCLCPP_INFO(this->get_logger(), "minTtc : " + std::to_string(minTtc));
+        // RCLCPP_INFO(this->get_logger(), "minTtc : " + std::to_string(minTtc));
+    }
+
+    void ackermann_callback(const AckermannDriveStamped::ConstSharedPtr lastAckermannCmdMsg)
+    {
+        lastAckermannCmd = lastAckermannCmdMsg;
     }
 
     void brake()
     {
+        if (lastAckermannCmd == nullptr)
+            return;
+
         AckermannDriveStamped brakeMsg;
-        brakeMsg.drive.speed = 0;
+        brakeMsg.drive.steering_angle = lastAckermannCmd->drive.steering_angle;
+        brakeMsg.drive.steering_angle_velocity = lastAckermannCmd->drive.steering_angle_velocity;
+        brakeMsg.drive.speed = 0.;
 
         pubBrake->publish(brakeMsg);
     }
 
+    // TODO : Replace this by parameters in the launch file (NbPointsInScan and AngleIncrement)
     void computeRangeIndexes(const LaserScan::ConstSharedPtr scanMsg)
     {
         float radMinAngle = (-fovDegree / 2) * (M_PI / 180.0);
